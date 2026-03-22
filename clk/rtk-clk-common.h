@@ -11,12 +11,16 @@
 #ifndef __CLK_REALTEK_COMMON_H
 #define __CLK_REALTEK_COMMON_H
 
+#include "linux-clk-core.h"
 #include <linux/bitops.h>
 #include <linux/clk-provider.h>
 #include <linux/device.h>
 #include <linux/io.h>
 #include <linux/of.h>
 #include <linux/regmap.h>
+
+/* Hardcode RTD129x support */
+#define CONFIG_COMMON_CLK_RTD129X
 
 /**
  * struct clk_reg - a clk core with hardware register access, which is provided

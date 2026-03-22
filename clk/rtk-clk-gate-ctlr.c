@@ -27,7 +27,8 @@
 #include "rtk-clk-common.h"
 #include "rtk-clk-mmio-gate.h"
 
-#define MAX_CLOCK_GATES  32
+#define DEV_NAME	"RTK_CLK_CGC"
+#define MAX_CLOCK_GATES	32
 
 struct cgc_desc {
 	struct device *dev;
