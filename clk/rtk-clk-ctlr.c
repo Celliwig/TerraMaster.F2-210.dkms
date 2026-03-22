@@ -128,7 +128,7 @@ static struct platform_driver rtk_cc_driver = {
 	},
 };
 
-
+MODULE_DEVICE_TABLE(of, rtk_cc_match);
 module_platform_driver(rtk_cc_driver);
 
 MODULE_AUTHOR("Cheng-Yu Lee <cylee12@realtek.com>");

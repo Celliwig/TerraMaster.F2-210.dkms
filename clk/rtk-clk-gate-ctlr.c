@@ -262,7 +262,7 @@ static struct platform_driver rtk_cgc_driver = {
 	},
 };
 
-
+MODULE_DEVICE_TABLE(of, rtk_cgc_match);
 module_platform_driver(rtk_cgc_driver);
 
 MODULE_AUTHOR("Cheng-Yu Lee <cylee12@realtek.com>");

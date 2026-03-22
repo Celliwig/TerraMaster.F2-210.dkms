@@ -237,7 +237,7 @@ static struct platform_driver rtd119x_rtc_driver = {
 	},
 };
 
-
+MODULE_DEVICE_TABLE(of, rtd119x_rtc_dt_ids);
 module_platform_driver(rtd119x_rtc_driver);
 
 MODULE_AUTHOR("Andreas Färber");
