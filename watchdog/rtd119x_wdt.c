@@ -112,17 +112,17 @@ static const struct watchdog_info rtd119x_wdt_info = {
 // Restart handler
 ////////////////////////////////////////////////////////////////////////////////
 /* Watchdog pointer saved for restart handler */
-static struct rtd119x_watchdog_device *rtd119x_wdt_dev;
+static void __iomem *wdt_base;
 
 static int rtd119x_restart_handler(struct notifier_block *this, unsigned long mode, void *cmd)
 {
 	/*
 	 * Perform a hardware reset with the use of the Watchdog timer.
 	 */
-	rtd119x_wdt_set_count(&rtd119x_wdt_dev->wdt_dev, 0x00800000);
-	rtd119x_wdt_ping(&rtd119x_wdt_dev->wdt_dev);
-	rtd119x_wdt_set_timeout(&rtd119x_wdt_dev->wdt_dev, 0x00800000);
-	rtd119x_wdt_start(&rtd119x_wdt_dev->wdt_dev);
+	writel(0x00800000, wdt_base + RTD119X_TCW_COUNT);
+	writel(BIT(0), wdt_base + RTD119X_TCW_CLR);
+	writel(0x00800000, wdt_base + RTD119X_TCW_TIMEOUT);
+	writel(0x000000FF, wdt_base + RTD119X_TCW_CTRL);
 
 	mdelay(2000);
 
@@ -164,12 +164,12 @@ static int rtd119x_wdt_probe(struct platform_device *pdev)
 
 	data->wdt_dev.info = &rtd119x_wdt_info;
 	data->wdt_dev.ops = &rtd119x_wdt_ops;
-	data->wdt_dev.timeout = 120;
+	data->wdt_dev.timeout = 30;
 	data->wdt_dev.max_timeout = 0xffffffff / clk_get_rate(data->clk);
 	data->wdt_dev.min_timeout = 1;
 	data->wdt_dev.parent = dev;
 
-	watchdog_stop_on_reboot(&data->wdt_dev);				// Need WDT for restart
+	//watchdog_stop_on_reboot(&data->wdt_dev);				// Need WDT for restart
 	watchdog_set_drvdata(&data->wdt_dev, data);
 	platform_set_drvdata(pdev, data);
 
@@ -177,6 +177,7 @@ static int rtd119x_wdt_probe(struct platform_device *pdev)
 	rtd119x_wdt_set_timeout(&data->wdt_dev, data->wdt_dev.timeout);
 	rtd119x_wdt_stop(&data->wdt_dev);
 
+	//watchdog_set_nowayout(&dev->wdt, nowayout);
 	ret = devm_watchdog_register_device(dev, &data->wdt_dev);
 	if (ret) {
                 pr_err("%s: failed to register watchdog\n", DEV_NAME);
@@ -184,7 +185,7 @@ static int rtd119x_wdt_probe(struct platform_device *pdev)
 	}
 
 	/* Save watchdog data pointer for restart handler */
-	rtd119x_wdt_dev = data;
+	wdt_base = data->base;
 
         ret = register_restart_handler(&rtd119x_restart_nb);
         if (ret)
@@ -196,6 +197,22 @@ rtd119x_wdt_probe_finish:
 	return ret;
 }
 
+static void rtd119x_wdt_remove(struct platform_device *pdev)
+{
+	struct watchdog_device *wdt_dev = platform_get_drvdata(pdev);
+	struct rtd119x_watchdog_device *rtd119x_dev = watchdog_get_drvdata(wdt_dev);
+	int ret;
+
+	ret = unregister_restart_handler(&rtd119x_restart_nb);
+	if (ret)
+		pr_warn("%s: failed to unregister restart handler\n", DEV_NAME);
+
+	watchdog_unregister_device(wdt_dev);
+	kfree(rtd119x_dev);
+
+	pr_info("%s: removed watchdog", DEV_NAME);
+}
+
 
 static const struct of_device_id rtd119x_wdt_dt_ids[] = {
 	 { .compatible = "realtek,rtd1295-watchdog" },
@@ -203,10 +220,11 @@ static const struct of_device_id rtd119x_wdt_dt_ids[] = {
 };
 
 static struct platform_driver rtd119x_wdt_driver = {
-	.probe = rtd119x_wdt_probe,
+	.probe				= rtd119x_wdt_probe,
+	.remove_new			= rtd119x_wdt_remove,
 	.driver = {
-		.name = DEV_NAME,
-		.of_match_table	= rtd119x_wdt_dt_ids,
+		.name			= DEV_NAME,
+		.of_match_table		= rtd119x_wdt_dt_ids,
 	},
 };
 
