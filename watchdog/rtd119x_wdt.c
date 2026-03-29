@@ -145,16 +145,22 @@ static int rtd119x_wdt_probe(struct platform_device *pdev)
 	int ret;
 
 	data = devm_kzalloc(dev, sizeof(*data), GFP_KERNEL);
-	if (!data)
+	if (!data) {
+		pr_err("%s: failed to allocate memory\n", DEV_NAME);
 		return -ENOMEM;
+	}
 
 	data->base = devm_platform_ioremap_resource(pdev, 0);
-	if (IS_ERR(data->base))
+	if (IS_ERR(data->base)) {
+		pr_err("%s: failed to remap IO\n", DEV_NAME);
 		return PTR_ERR(data->base);
+	}
 
 	data->clk = devm_clk_get_enabled(dev, NULL);
-	if (IS_ERR(data->clk))
+	if (IS_ERR(data->clk)) {
+		pr_err("%s: failed to enable clock\n", DEV_NAME);
 		return PTR_ERR(data->clk);
+	}
 
 	data->wdt_dev.info = &rtd119x_wdt_info;
 	data->wdt_dev.ops = &rtd119x_wdt_ops;
