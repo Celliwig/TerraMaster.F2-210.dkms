@@ -19,6 +19,7 @@
 
 
 #define DEV_NAME				"rtd1295-wtd"
+#define WATCHDOG_TIMEOUT			30
 
 #define RTD119X_TCW_CTRL			0x0
 #define RTD119X_TCW_CLR				0x4
@@ -38,6 +39,18 @@ struct rtd119x_watchdog_device {
 	struct clk *clk;
 };
 
+
+// Module parameters
+////////////////////////////////////////////////////////////////////////////////
+static bool nowayout = WATCHDOG_NOWAYOUT;
+module_param(nowayout, bool, 0);
+MODULE_PARM_DESC(nowayout, "Watchdog cannot be stopped once started (default="
+        __MODULE_STRING(WATCHDOG_NOWAYOUT) ")");
+
+static unsigned timeout;
+module_param(timeout, uint, 0);
+MODULE_PARM_DESC(timeout, "Watchdog timeout in seconds (default="
+        __MODULE_STRING(WATCHDOG_TIMEOUT) ")");
 
 // Watchdog
 ////////////////////////////////////////////////////////////////////////////////
@@ -106,7 +119,7 @@ static const struct watchdog_ops rtd119x_wdt_ops = {
 
 static const struct watchdog_info rtd119x_wdt_info = {
 	.identity = "rtd119x-wdt",
-	.options = 0,
+	.options = WDIOF_KEEPALIVEPING | WDIOF_MAGICCLOSE | WDIOF_SETTIMEOUT,
 };
 
 // Restart handler
@@ -164,20 +177,22 @@ static int rtd119x_wdt_probe(struct platform_device *pdev)
 
 	data->wdt_dev.info = &rtd119x_wdt_info;
 	data->wdt_dev.ops = &rtd119x_wdt_ops;
-	data->wdt_dev.timeout = 30;
+	data->wdt_dev.timeout = WATCHDOG_TIMEOUT;
 	data->wdt_dev.max_timeout = 0xffffffff / clk_get_rate(data->clk);
 	data->wdt_dev.min_timeout = 1;
 	data->wdt_dev.parent = dev;
+
+	watchdog_set_nowayout(&dev->wdt, nowayout);
+	watchdog_init_timeout(&dev->wdt, timeout, pdev);
 
 	//watchdog_stop_on_reboot(&data->wdt_dev);				// Need WDT for restart
 	watchdog_set_drvdata(&data->wdt_dev, data);
 	platform_set_drvdata(pdev, data);
 
-	writel_relaxed(RTD119X_TCW_CLR_WDCLR, data->base + RTD119X_TCW_CLR);
-	rtd119x_wdt_set_timeout(&data->wdt_dev, data->wdt_dev.timeout);
-	rtd119x_wdt_stop(&data->wdt_dev);
+	writel_relaxed(RTD119X_TCW_CLR_WDCLR, data->base + RTD119X_TCW_CLR);	// Ping
+	//rtd119x_wdt_set_timeout(&data->wdt_dev, data->wdt_dev.timeout);
+	//rtd119x_wdt_stop(&data->wdt_dev);
 
-	//watchdog_set_nowayout(&dev->wdt, nowayout);
 	ret = devm_watchdog_register_device(dev, &data->wdt_dev);
 	if (ret) {
                 pr_err("%s: failed to register watchdog\n", DEV_NAME);
@@ -208,7 +223,6 @@ static void rtd119x_wdt_remove(struct platform_device *pdev)
 		pr_warn("%s: failed to unregister restart handler\n", DEV_NAME);
 
 	watchdog_unregister_device(wdt_dev);
-	kfree(rtd119x_dev);
 
 	pr_info("%s: removed watchdog", DEV_NAME);
 }
