@@ -182,8 +182,8 @@ static int rtd119x_wdt_probe(struct platform_device *pdev)
 	data->wdt_dev.min_timeout = 1;
 	data->wdt_dev.parent = dev;
 
-	watchdog_set_nowayout(&dev->wdt, nowayout);
-	watchdog_init_timeout(&dev->wdt, timeout, pdev);
+	watchdog_set_nowayout(&data->wdt_dev, nowayout);
+	watchdog_init_timeout(&data->wdt_dev, timeout, dev);
 
 	//watchdog_stop_on_reboot(&data->wdt_dev);				// Need WDT for restart
 	watchdog_set_drvdata(&data->wdt_dev, data);
