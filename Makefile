@@ -8,6 +8,7 @@ obj-m += gpio/
 obj-m += irqchip/
 obj-m += pinctrl/
 obj-m += rtc/
+obj-m += serial/
 obj-m += usb/
 obj-m += watchdog/
 
