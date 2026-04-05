@@ -8,6 +8,8 @@
  * The Synopsys DesignWare 8250 has an extra feature whereby it detects if the
  * LCR is written whilst busy.  If it is, then a busy detect interrupt is
  * raised, the LCR needs to be rewritten and the uart status register read.
+ *
+ * Patched for RTK129x, 2026 - Celliwig <celliwig@nym.hush.com>
  */
 #include <linux/clk.h>
 #include <linux/delay.h>
@@ -806,7 +808,7 @@ MODULE_DEVICE_TABLE(acpi, dw8250_acpi_match);
 
 static struct platform_driver dw8250_platform_driver = {
 	.driver = {
-		.name			= "dw-apb-uart",
+		.name			= "dw-rtk-apb-uart",
 		.pm			= pm_ptr(&dw8250_pm_ops),
 		.of_match_table		= dw8250_of_match,
 		.acpi_match_table	= dw8250_acpi_match,
@@ -819,5 +821,5 @@ module_platform_driver(dw8250_platform_driver);
 
 MODULE_AUTHOR("Jamie Iles");
 MODULE_LICENSE("GPL");
-MODULE_DESCRIPTION("Synopsys DesignWare 8250 serial port driver");
-MODULE_ALIAS("platform:dw-apb-uart");
+MODULE_DESCRIPTION("RTK129x - Synopsys DesignWare 8250 serial port driver");
+MODULE_ALIAS("platform:dw-rtk-apb-uart");
