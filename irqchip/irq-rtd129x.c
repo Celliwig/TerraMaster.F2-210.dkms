@@ -316,6 +316,8 @@ static void __init mux_init_each(struct rtk_irqmux_data *mux_data,
 
 	/* Forciably disable UART0 (console) IRQ, required if using polling */
 	if ((mux_index == 1) && uart0_irq_disable) {
+		pr_info("%s: disabled UART0 IRQ\n", __func__);
+
 		/* Disable UART0 IRQ */
 		__raw_writel((__raw_readl(base + enable_offset) & ~BIT(2)), base + enable_offset);
 		/* Acknowledge IRQ in status register */
