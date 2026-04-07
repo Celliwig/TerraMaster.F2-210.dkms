@@ -36,89 +36,102 @@
 
 static DEFINE_SPINLOCK(irq_mux_lock);
 
-struct irq_mux_data {
-	void __iomem *base;
-	unsigned char index;
-	unsigned int irq;
-	unsigned int irq_offset;
-	u32 intr_status;
-	u32 intr_en;
+struct rtk_irqmux_data {
+	void __iomem		*base;
+	unsigned char		index;
+	unsigned int		irq;
+	unsigned int		irq_idx_offset;
+	u32			reg_offset_status;
+	u32			reg_offset_enabled;
 };
 
 static struct irq_domain *rtk_domain;
 
-static void mux_mask_irq(struct irq_data *data)
+#define DEFAULT_UART0_IRQ	false
+static bool uart0_irq_disable = DEFAULT_UART0_IRQ;
+module_param(uart0_irq_disable, bool, 0);
+MODULE_PARM_DESC(uart0_irq_disable, "Forciably disable UART0 [console] IRQ (default=" __MODULE_STRING(DEFAULT_UART0_IRQ) ")");
+
+
+static void rtkmux_ack_irq(struct irq_data *data)
 {
-	struct irq_mux_data *mux_data = irq_data_get_irq_chip_data(data);
+	struct rtk_irqmux_data *mux_data = irq_data_get_irq_chip_data(data);
 	void __iomem *base;
-	u32 reg_st;
+	u32 status_offset;
 
-	mux_data += (data->hwirq / IRQ_INMUX);
+	mux_data += (data->hwirq / IRQ_INMUX);						// Select mux data structure from array
 	base = mux_data->base;
-	reg_st = mux_data->intr_status;
+	status_offset = mux_data->reg_offset_status;
 
-	__raw_writel(BIT(data->hwirq % IRQ_INMUX), base + reg_st);
+	/* Celliwig: didn't originally have spinlock, is this needed to protect for SMP??? */
+	spin_lock(&irq_mux_lock);
+	__raw_writel(BIT(data->hwirq % IRQ_INMUX), base + status_offset);		// Clear flag
+	spin_unlock(&irq_mux_lock);
 }
 
-static void mux_unmask_irq(struct irq_data *data)
+static void rtkmux_unmask_irq(struct irq_data *data)
 {
-	struct irq_mux_data *mux_data = irq_data_get_irq_chip_data(data);
+	struct rtk_irqmux_data *mux_data = irq_data_get_irq_chip_data(data);
 	void __iomem *base;
-	u32 reg_en;
-	u8 en_offset;
+	u32 enable_offset;
+	u8 enable_irq_bit;
 
-	mux_data += (data->hwirq / IRQ_INMUX);
+	mux_data += (data->hwirq / IRQ_INMUX);						// Select mux data structure from array
 	base = mux_data->base;
-	reg_en = mux_data->intr_en;
+	enable_offset = mux_data->reg_offset_enabled;
 
-	en_offset = irq_map_tab[mux_data->index][data->hwirq % IRQ_INMUX];
+	/* Check requested IRQ bit against RTK MUX table */
+	enable_irq_bit = rtk_irq_map_tbl[mux_data->index][data->hwirq % IRQ_INMUX];
 
-	if ((en_offset != MISC_INT_RVD) && (en_offset != MISC_INT_FAIL)) {
+	if ((enable_irq_bit != MISC_INT_RVD) && (enable_irq_bit != MISC_INT_FAIL)) {
 
-		__raw_writel((__raw_readl(base + reg_en) |
-			BIT(en_offset)), base + reg_en);
+		/* Celliwig: didn't originally have spinlock, is this needed to protect for SMP??? */
+		spin_lock(&irq_mux_lock);
+		__raw_writel((__raw_readl(base + enable_offset) | BIT(enable_irq_bit)), base + enable_offset);
+		spin_unlock(&irq_mux_lock);
 
-	} else if (en_offset == MISC_INT_FAIL) {
+	} else if (enable_irq_bit == MISC_INT_FAIL) {
 		pr_err("[%s] Enable irq(%lu) fail\n", DEV_NAME, data->hwirq);
 	}
 }
 
-static void mux_disable_irq(struct irq_data *data)
+static void rtkmux_mask_irq(struct irq_data *data)
 {
-	struct irq_mux_data *mux_data = irq_data_get_irq_chip_data(data);
+	struct rtk_irqmux_data *mux_data = irq_data_get_irq_chip_data(data);
 	void __iomem *base;
-	u32 reg_en;
-	u8 en_offset;
+	u32 enable_offset;
+	u8 enable_irq_bit;
 
-#ifdef CONFIG_RTK_XEN_SUPPORT
-	if (data->hwirq == IRDA_HW_IRQ && !xen_initial_domain()) {
-		pr_info("%s:Skip IRDA on Guest Domain\n", __func__);
-		return;
-	}
-#endif
+	// Celliwig: Rtk disabled IRDA interrupts for Xen guests
+	//if (data->hwirq == IRDA_HW_IRQ && !xen_initial_domain()) {
+	//	pr_info("%s:Skip IRDA on Guest Domain\n", __func__);
+	//	return;
+	//}
 
-	mux_data += (data->hwirq / IRQ_INMUX);
+	mux_data += (data->hwirq / IRQ_INMUX);						// Select mux data structure from array
 	base = mux_data->base;
-	reg_en = mux_data->intr_en;
+	enable_offset = mux_data->reg_offset_enabled;
 
-	en_offset = irq_map_tab[mux_data->index][data->hwirq % IRQ_INMUX];
+	/* Check requested IRQ bit against RTK MUX table */
+	enable_irq_bit = rtk_irq_map_tbl[mux_data->index][data->hwirq % IRQ_INMUX];
 
-	if ((en_offset != MISC_INT_RVD) && (en_offset != MISC_INT_FAIL)) {
+	if ((enable_irq_bit != MISC_INT_RVD) && (enable_irq_bit != MISC_INT_FAIL)) {
 
-		__raw_writel((__raw_readl(base + reg_en) &
-				~BIT(en_offset)), base + reg_en);
+		spin_lock(&irq_mux_lock);
+		__raw_writel((__raw_readl(base + enable_offset) & ~BIT(enable_irq_bit)), base + enable_offset);
+		spin_unlock(&irq_mux_lock);
 
-	} else if (en_offset == MISC_INT_FAIL) {
+	} else if (enable_irq_bit == MISC_INT_FAIL) {
 		pr_err("[%s] Disable irq(%lu) fail\n", DEV_NAME, data->hwirq);
 	}
 }
 
 #ifdef CONFIG_SMP
-static int __maybe_unused mux_set_affinity(struct irq_data *d,
+static int __maybe_unused rtkmux_set_affinity(struct irq_data *d,
 	const struct cpumask *mask_val,
 	bool force)
 {
-	struct irq_mux_data *mux_data = irq_data_get_irq_chip_data(d);
+	struct rtk_irqmux_data *mux_data = irq_data_get_irq_chip_data(d);
 	struct irq_chip *chip = irq_get_chip(mux_data->irq);
 	struct irq_data *data = irq_get_irq_data(mux_data->irq);
 
@@ -130,107 +143,115 @@ static int __maybe_unused mux_set_affinity(struct irq_data *d,
 }
 #endif
 
-static struct irq_chip mux_chip = {
+static struct irq_chip rtkmux_chip = {
 	.name = DEV_NAME,
-	.irq_mask = mux_mask_irq,
-	.irq_unmask = mux_unmask_irq,
-	.irq_disable = mux_disable_irq,
+	.irq_ack = rtkmux_ack_irq,
+	.irq_mask = rtkmux_mask_irq,
+	.irq_unmask = rtkmux_unmask_irq,
 #ifdef CONFIG_SMP
-	.irq_set_affinity = mux_set_affinity,
+	.irq_set_affinity = rtkmux_set_affinity,
 #endif
 };
 
-static void mux_irq_handle(struct irq_desc *desc)
+static void rtkmux_irq_handle(struct irq_desc *desc)
 {
-	struct irq_mux_data *mux_data = irq_desc_get_handler_data(desc);
+	struct rtk_irqmux_data *mux_data = irq_desc_get_handler_data(desc);
 	struct irq_chip *chip = irq_desc_get_chip(desc);
+	//struct irq_data *data = irq_desc_get_irq_data(desc);
+	//unsigned int hwirq = data->hwirq;
 	unsigned int irq = irq_desc_get_irq(desc);
-	unsigned int tmp;
+	unsigned int irq_ref, irq_idx;
+	unsigned int enable_offset, status_offset;
+	unsigned int status_current, status_new;
+	unsigned int enable_current;
 	int ret;
-	unsigned int mux_irq;
-	static u32 count;
-	u8 en_offset;
-	int i;
-	unsigned int status, check_status;
-	unsigned int enable;
+	u8 enable_irq_bit;
 
-	u32 reg_st = mux_data->intr_status;
-	u32 reg_en = mux_data->intr_en;
+	/* Used to watch for stuck bits */
+	static u32 count;
+
+	status_offset = mux_data->reg_offset_status;
+	enable_offset = mux_data->reg_offset_enabled;
 
 	chained_irq_enter(chip, desc);
 
+	/* Get current IRQ MUX state */
 	spin_lock(&irq_mux_lock);
-	enable = __raw_readl(mux_data->base + reg_en);
-	status = __raw_readl(mux_data->base + reg_st);
+	enable_current = __raw_readl(mux_data->base + enable_offset);
+	status_current = __raw_readl(mux_data->base + status_offset);
 	spin_unlock(&irq_mux_lock);
 
-	for (i = 0 ; i < IRQ_INMUX ; i++) {
-		if (status & BIT(i)) {
-			en_offset = irq_map_tab[mux_data->index][i];
-			mux_irq = mux_data->irq_offset + i;
+	/* Iterate through IRQ MUX bitx */
+	for (unsigned int i = 0 ; i < IRQ_INMUX ; i++) {
+		/* Check whether IRQ status bit set */
+		if (status_current & BIT(i)) {
+			/* Check requested IRQ bit against RTK MUX table */
+			enable_irq_bit = rtk_irq_map_tbl[mux_data->index][i];
+			irq_idx = mux_data->irq_idx_offset + i;
 
-			if ((en_offset < IRQ_INMUX) &&
-				(enable & BIT(en_offset))) {
+			if ((enable_irq_bit < IRQ_INMUX) &&
+				(enable_current & BIT(enable_irq_bit))) {		// IRQ bit is valid, and enabled
 
-				tmp = irq_find_mapping(rtk_domain, mux_irq);
-				ret = generic_handle_irq(tmp);
+				irq_ref = irq_find_mapping(rtk_domain, irq_idx);
+				ret = generic_handle_irq(irq_ref);			// Fire interrupt handler
 
 				if (ret != 0) {
 					pr_err("[%s] irq(%u) desc is not found"
 						"(st:0x%08x en:0x%08x)\n",
 						DEV_NAME,
-						mux_irq,
-						status,
-						enable);
+						irq_idx,
+						status_current,
+						enable_current);
 				}
-			} else if (en_offset == MISC_INT_RVD) {
+			} else if (enable_irq_bit == MISC_INT_RVD) {			// IRQ bit is reserved
 
-				tmp = irq_find_mapping(rtk_domain, mux_irq);
-				ret = generic_handle_irq(tmp);
+				irq_ref = irq_find_mapping(rtk_domain, irq_idx);
+				ret = generic_handle_irq(irq_ref);			// Fire interrupt handler
 
 				if (ret != 0) {
 					pr_err("[%s] irq(%u) desc is not found"
 						"(st:0x%08x en:0x%08x)\n",
 						DEV_NAME,
-						mux_irq,
-						status,
-						enable);
+						irq_idx,
+						status_current,
+						enable_current);
 				}
 			} else {
 				pr_err("[%s] irq(%u) should not happen"
 					"(st:0x%08x en:0x%08x)\n",
 					DEV_NAME,
-					mux_irq,
-					status,
-					enable);
+					irq_idx,
+					status_current,
+					enable_current);
 			}
 		}
 	}
 
-	/* as a transmission interface, SPI wont do too much here */
-	if (irq == 1 && status | 0x08000000) 
-		goto out; 	
-	
+	/* As a transmission interface, SPI wont do too much here */
+	if ((irq == 1) && (status_current | 0x08000000))
+		goto out;
 
+	/* Get new IRQ MUX state */
 	spin_lock(&irq_mux_lock);
-	check_status = __raw_readl(mux_data->base + reg_st);
+	status_new = __raw_readl(mux_data->base + status_offset);
 	spin_unlock(&irq_mux_lock);
 
-	if (check_status == status) {
+	/* Check for unacknowledged IRQs */
+	if (status_new == status_current) {
 		if (count > 1) {
-			pr_err("[%s] (%u) %s irq status is not change"
-				"clear it! (st:0x%08x en:0x%08x)\n",
+			pr_err("[%s] (%u) %s irq status has not changed, clear it! (st:0x%08x en:0x%08x)\n",
 				DEV_NAME,
 				irq,
 				mux_data->index ? "ISO" : "MISC",
-				status,
-				enable);
+				status_current,
+				enable_current);
 		} else {
 			count++;
 		}
 
+		/* Forcibly clear first IRQ bit in status */
 		spin_lock(&irq_mux_lock);
-		__raw_writel(BIT(__ffs(status)), mux_data->base + reg_st);
+		__raw_writel(BIT(__ffs(status_current)), mux_data->base + status_offset);
 		spin_unlock(&irq_mux_lock);
 
 	} else {
@@ -240,7 +261,7 @@ out:
 	chained_irq_exit(chip, desc);
 }
 
-static int mux_irq_domain_xlate(struct irq_domain *d,
+static int rtkmux_irq_domain_xlate(struct irq_domain *d,
 	struct device_node *controller,
 	const u32 *intspec,
 	unsigned int intsize,
@@ -256,73 +277,86 @@ static int mux_irq_domain_xlate(struct irq_domain *d,
 	*out_hwirq = intspec[0] * IRQ_INMUX + intspec[1];
 	*out_type = 0;
 
+	pr_debug("%s: xlate IRQ: isp0: %u, isp1: %u, isize: %u, hwirq: %lu\n", __func__, intspec[0], intspec[1], intsize, *out_hwirq);
+
 	return 0;
 }
 
-static int mux_irq_domain_map(struct irq_domain *d,
+static int rtkmux_irq_domain_map(struct irq_domain *d,
 						unsigned int irq,
 						irq_hw_number_t hw)
 {
-	struct irq_mux_data *data = d->host_data;
+	struct rtk_irqmux_data *data = d->host_data;
 
-	irq_set_chip_and_handler(irq, &mux_chip, handle_level_irq);
+	irq_set_chip_and_handler(irq, &rtkmux_chip, handle_level_irq);
 	irq_set_chip_data(irq, data);
 	irq_set_probe(irq);
+
+	pr_debug("%s: mapped IRQ: id: %u, irq: %u, hwirq: %lu\n", __func__, data->index, irq, hw);
 
 	return 0;
 }
 
 static const struct irq_domain_ops mux_irq_domain_ops = {
-	.xlate = mux_irq_domain_xlate,
-	.map = mux_irq_domain_map,
+	.xlate = rtkmux_irq_domain_xlate,
+	.map = rtkmux_irq_domain_map,
 };
 
-static void __init mux_init_each(struct irq_mux_data *mux_data,
-	void __iomem *base,
-	u32 irq, u32 status,
-	u32 enable, int nr)
+static void __init mux_init_each(struct rtk_irqmux_data *mux_data,
+	void __iomem *base, u32 irq,
+	u32 status_offset, u32 enable_offset, int mux_index)
 {
 	mux_data->base = base;
-	mux_data->index = nr;
+	mux_data->index = mux_index;
 	mux_data->irq = irq;
-	mux_data->irq_offset = nr * IRQ_INMUX;
-	mux_data->intr_status = status;
-	mux_data->intr_en = enable;
+	mux_data->irq_idx_offset = mux_index * IRQ_INMUX;
+	mux_data->reg_offset_status = status_offset;
+	mux_data->reg_offset_enabled = enable_offset;
 
-#ifndef CONFIG_RTK_XEN_SUPPORT  // UART is handled at hypervisor, clear bit will cause console stop
-	__raw_writel((__raw_readl(base + enable) & ~BIT(2)), base + enable);
-	__raw_writel(BIT(2), base + status);
-#endif
 
-	irq_set_chained_handler_and_data(irq, mux_irq_handle, mux_data);
+	/* Forciably disable UART0 (console) IRQ, required if using polling */
+	if ((mux_index == 1) && uart0_irq_disable) {
+		/* Disable UART0 IRQ */
+		__raw_writel((__raw_readl(base + enable_offset) & ~BIT(2)), base + enable_offset);
+		/* Acknowledge IRQ in status register */
+		__raw_writel(BIT(2), base + status_offset);
+	}
 
+	irq_set_chained_handler_and_data(irq, rtkmux_irq_handle, mux_data);
+
+	pr_info("%s: registered interrupt MUX: index: %u, irq: %u, irq_idx_offset: %u, reg_st: %u, reg_en: %u\n",
+		DEV_NAME,
+		mux_data->index,
+		mux_data->irq,
+		mux_data->irq_idx_offset,
+		mux_data->reg_offset_status,
+		mux_data->reg_offset_enabled);
 }
 
 static int __init mux_of_init(struct device_node *np, struct device_node *parent)
 {
-	int i;
-	u32 nr_irq = 1;
-	struct irq_mux_data *mux_data;
+	struct rtk_irqmux_data *mux_data;
 	void __iomem *base;
 	u32 irq;
-	u32 status, enable;
+	u32 mux_count = 1;
+	u32 status_offset, enable_offset;
 
-	pr_info("[%s] initialising interrupt controller\n", DEV_NAME);
+	pr_info("%s: initialising interrupt controller\n", DEV_NAME);
 
 	if (WARN_ON(!np))
 		return -ENODEV;
 
-	if (of_property_read_u32(np, "Realtek,mux-nr", &nr_irq))
+	if (of_property_read_u32(np, "Realtek,mux-nr", &mux_count))
 		pr_err("[%s] can not specified mux number\n", DEV_NAME);
 
-	mux_data = kcalloc(nr_irq, sizeof(*mux_data), GFP_KERNEL);
+	mux_data = kcalloc(mux_count, sizeof(*mux_data), GFP_KERNEL);
 
 	/*
-	 * TODO : tempary define the first irq number
+	 * TODO : temporarily define the first irq number
 	 * in this mux is 160, end in 160+64
 	 */
 	rtk_domain = irq_domain_add_simple(np,
-		(nr_irq * IRQ_INMUX),
+		(mux_count * IRQ_INMUX),
 		160,
 		&mux_irq_domain_ops,
 		mux_data);
@@ -330,23 +364,21 @@ static int __init mux_of_init(struct device_node *np, struct device_node *parent
 	if (!rtk_domain)
 		pr_warn("[%s] IRQ domain init failed\n", DEV_NAME);
 
-	for (i = 0; i < nr_irq; i++) {
+	for (unsigned int i = 0; i < mux_count; i++) {
 		base = of_iomap(np, i);
 
 		if (!base)
-			pr_warn("[%s] unable to map IRQ base registers\n",
-				DEV_NAME);
-
+			pr_warn("[%s] unable to map IRQ base registers\n", DEV_NAME);
 
 		irq = irq_of_parse_and_map(np, i);
 
 		if (!irq)
 			pr_warn("[%s] can not map IRQ\n", DEV_NAME);
 
-		of_property_read_u32_index(np, "intr-status", i, &status);
-		of_property_read_u32_index(np, "intr-en", i, &enable);
+		of_property_read_u32_index(np, "intr-status", i, &status_offset);
+		of_property_read_u32_index(np, "intr-en", i, &enable_offset);
 
-		mux_init_each(mux_data, base, irq, status, enable, i);
+		mux_init_each(mux_data, base, irq, status_offset, enable_offset, i);
 
 		mux_data++;
 	}
