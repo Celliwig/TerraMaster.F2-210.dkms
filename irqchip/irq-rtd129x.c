@@ -91,7 +91,7 @@ static void rtkmux_unmask_irq(struct irq_data *data)
 		spin_unlock(&irq_mux_lock);
 
 	} else if (enable_irq_bit == MISC_INT_FAIL) {
-		pr_err("[%s] Enable irq(%lu) fail\n", DEV_NAME, data->hwirq);
+		pr_err("[%s] unmask irq(%lu) failed\n", DEV_NAME, data->hwirq);
 	}
 }
 
@@ -122,7 +122,7 @@ static void rtkmux_mask_irq(struct irq_data *data)
 		spin_unlock(&irq_mux_lock);
 
 	} else if (enable_irq_bit == MISC_INT_FAIL) {
-		pr_err("[%s] Disable irq(%lu) fail\n", DEV_NAME, data->hwirq);
+		pr_err("[%s] mask irq(%lu) failed\n", DEV_NAME, data->hwirq);
 	}
 }
 
@@ -239,9 +239,10 @@ static void rtkmux_irq_handle(struct irq_desc *desc)
 	/* Check for unacknowledged IRQs */
 	if (status_new == status_current) {
 		if (count > 1) {
-			pr_err("[%s] (%u) %s irq status has not changed, clear it! (st:0x%08x en:0x%08x)\n",
+			pr_err("[%s] (%u:%u) %s irq status has not changed, clear it! (st:0x%08x en:0x%08x)\n",
 				DEV_NAME,
 				irq,
+				count,
 				mux_data->index ? "ISO" : "MISC",
 				status_current,
 				enable_current);
@@ -302,7 +303,7 @@ static const struct irq_domain_ops mux_irq_domain_ops = {
 	.map = rtkmux_irq_domain_map,
 };
 
-static void __init mux_init_each(struct rtk_irqmux_data *mux_data,
+static void __init rtkmux_init_each(struct rtk_irqmux_data *mux_data,
 	void __iomem *base, u32 irq,
 	u32 status_offset, u32 enable_offset, int mux_index)
 {
@@ -326,7 +327,7 @@ static void __init mux_init_each(struct rtk_irqmux_data *mux_data,
 
 	irq_set_chained_handler_and_data(irq, rtkmux_irq_handle, mux_data);
 
-	pr_info("%s: registered interrupt MUX: index: %u, irq: %u, irq_idx_offset: %u, reg_st: %u, reg_en: %u\n",
+	pr_info("[%s] registered interrupt MUX: index: %u, irq: %u, irq_idx_offset: %u, reg_st: %u, reg_en: %u\n",
 		DEV_NAME,
 		mux_data->index,
 		mux_data->irq,
@@ -335,7 +336,7 @@ static void __init mux_init_each(struct rtk_irqmux_data *mux_data,
 		mux_data->reg_offset_enabled);
 }
 
-static int __init mux_of_init(struct device_node *np, struct device_node *parent)
+static int __init rtkmux_of_init(struct device_node *np, struct device_node *parent)
 {
 	struct rtk_irqmux_data *mux_data;
 	void __iomem *base;
@@ -343,13 +344,13 @@ static int __init mux_of_init(struct device_node *np, struct device_node *parent
 	u32 mux_count = 1;
 	u32 status_offset, enable_offset;
 
-	pr_info("%s: initialising interrupt controller\n", DEV_NAME);
+	pr_info("[%s] initialising interrupt controller\n", DEV_NAME);
 
 	if (WARN_ON(!np))
 		return -ENODEV;
 
 	if (of_property_read_u32(np, "Realtek,mux-nr", &mux_count))
-		pr_err("[%s] can not specified mux number\n", DEV_NAME);
+		pr_err("%s: RTK IRQ MUX count not specified\n", __func__);
 
 	mux_data = kcalloc(mux_count, sizeof(*mux_data), GFP_KERNEL);
 
@@ -364,23 +365,23 @@ static int __init mux_of_init(struct device_node *np, struct device_node *parent
 		mux_data);
 
 	if (!rtk_domain)
-		pr_warn("[%s] IRQ domain init failed\n", DEV_NAME);
+		pr_warn("%s: IRQ domain init failed\n", __func__);
 
 	for (unsigned int i = 0; i < mux_count; i++) {
 		base = of_iomap(np, i);
 
 		if (!base)
-			pr_warn("[%s] unable to map IRQ base registers\n", DEV_NAME);
+			pr_warn("%s: unable to map IRQ base registers\n", __func__);
 
 		irq = irq_of_parse_and_map(np, i);
 
 		if (!irq)
-			pr_warn("[%s] can not map IRQ\n", DEV_NAME);
+			pr_warn("%s: can not map IRQ\n", __func__);
 
 		of_property_read_u32_index(np, "intr-status", i, &status_offset);
 		of_property_read_u32_index(np, "intr-en", i, &enable_offset);
 
-		mux_init_each(mux_data, base, irq, status_offset, enable_offset, i);
+		rtkmux_init_each(mux_data, base, irq, status_offset, enable_offset, i);
 
 		mux_data++;
 	}
@@ -389,7 +390,7 @@ static int __init mux_of_init(struct device_node *np, struct device_node *parent
 }
 
 IRQCHIP_PLATFORM_DRIVER_BEGIN(rtk_irq_mux)
-IRQCHIP_MATCH("Realtek,rtk-irq-mux", mux_of_init)
+IRQCHIP_MATCH("Realtek,rtk-irq-mux", rtkmux_of_init)
 IRQCHIP_PLATFORM_DRIVER_END(rtk_irq_mux)
 
 MODULE_AUTHOR("Realtek Semiconductor Corporation");
