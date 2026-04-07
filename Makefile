@@ -5,6 +5,7 @@ PWD := $(shell pwd)
 
 obj-m += clk/
 obj-m += gpio/
+obj-m += hw_random/
 obj-m += irqchip/
 obj-m += pinctrl/
 obj-m += rtc/
