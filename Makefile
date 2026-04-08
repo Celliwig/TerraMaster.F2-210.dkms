@@ -7,6 +7,7 @@ obj-m += clk/
 obj-m += gpio/
 obj-m += hw_random/
 obj-m += irqchip/
+obj-m += phy/
 obj-m += pinctrl/
 obj-m += rtc/
 obj-m += serial/
