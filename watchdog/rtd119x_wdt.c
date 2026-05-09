@@ -19,6 +19,7 @@
 
 
 #define DEV_NAME				"rtd1295-wtd"
+#define WATCHDOG_RH_ENABLE			false
 #define WATCHDOG_TIMEOUT			30
 
 #define RTD119X_TCW_CTRL			0x0
@@ -42,6 +43,11 @@ struct rtd119x_watchdog_device {
 
 // Module parameters
 ////////////////////////////////////////////////////////////////////////////////
+static bool handle_restart = WATCHDOG_RH_ENABLE;
+module_param(handle_restart, bool, 0);
+MODULE_PARM_DESC(handle_restart, "Enable module handling of system restart (default="
+        __MODULE_STRING(WATCHDOG_RH_ENABLE) ")");
+
 static bool nowayout = WATCHDOG_NOWAYOUT;
 module_param(nowayout, bool, 0);
 MODULE_PARM_DESC(nowayout, "Watchdog cannot be stopped once started (default="
@@ -202,9 +208,12 @@ static int rtd119x_wdt_probe(struct platform_device *pdev)
 	/* Save watchdog data pointer for restart handler */
 	wdt_base = data->base;
 
-        ret = register_restart_handler(&rtd119x_restart_nb);
-        if (ret)
-                pr_warn("%s: failed to register restart handler\n", DEV_NAME);
+	/* Check whether to enable restart handler */
+	if (handle_restart) {
+	        ret = register_restart_handler(&rtd119x_restart_nb);
+        	if (ret)
+                	pr_warn("%s: failed to register restart handler\n", DEV_NAME);
+	}
 
 	pr_info("%s: initialised watchdog", DEV_NAME);
 
@@ -218,9 +227,11 @@ static void rtd119x_wdt_remove(struct platform_device *pdev)
 	struct rtd119x_watchdog_device *rtd119x_dev = watchdog_get_drvdata(wdt_dev);
 	int ret;
 
-	ret = unregister_restart_handler(&rtd119x_restart_nb);
-	if (ret)
-		pr_warn("%s: failed to unregister restart handler\n", DEV_NAME);
+	if (handle_restart) {
+		ret = unregister_restart_handler(&rtd119x_restart_nb);
+		if (ret)
+			pr_warn("%s: failed to unregister restart handler\n", DEV_NAME);
+	}
 
 	watchdog_unregister_device(wdt_dev);
 
