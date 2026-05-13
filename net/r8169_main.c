@@ -5625,7 +5625,7 @@ static int rtl_init_one(struct platform_device *pdev)
 	/* Reset device */
 	tp->rsts[0].id = "gmac";
 	tp->rsts[1].id = "gphy";
-	rc = devm_reset_control_bulk_get_exclusive(&pdev->dev, MAX_RSTS, tp->rsts);
+	rc = devm_reset_control_bulk_get_shared(&pdev->dev, MAX_RSTS, tp->rsts);
 	if (rc) {
 		dev_err(&pdev->dev, "failed to get reset lines\n");
 		return rc;

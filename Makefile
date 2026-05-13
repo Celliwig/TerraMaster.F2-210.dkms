@@ -10,6 +10,7 @@ obj-m += irqchip/
 obj-m += net/
 obj-m += phy/
 obj-m += pinctrl/
+obj-m += reset/
 obj-m += rtc/
 obj-m += serial/
 obj-m += usb/
@@ -19,4 +20,3 @@ all:
 	make -C $(KDIR) M=$(PWD) modules
 clean:
 	make -C $(KDIR) M=$(PWD) clean
-
