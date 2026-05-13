@@ -27,6 +27,7 @@
 #include <linux/interrupt.h>
 #include <linux/dma-mapping.h>
 #include <linux/pm_runtime.h>
+#include <linux/reset.h>
 #include <linux/bitfield.h>
 #include <linux/prefetch.h>
 #include <linux/ipv6.h>
@@ -85,6 +86,7 @@
 #endif /* R8169_IO_PCI */
 #define InterFrameGap		0x03			/* 3 means InterFrameGap = the shortest one */
 #define MAX_CLKS		2			/* Based on RTK1296 */
+#define MAX_RSTS		2			/* Based on RTK1296 */
 
 #define R8169_REGS_SIZE		256
 #define R8169_RX_BUF_SIZE	(SZ_16K - 1)
@@ -635,6 +637,7 @@ struct rtl8169_private {
 	struct pci_dev			*pci_dev;
 #else
 	struct platform_device		*pdev;
+	struct reset_control_bulk_data	rsts[MAX_RSTS];
 #endif /* R8169_IO_PCI */
 	struct net_device		*dev;
 	struct phy_device		*phydev;
@@ -2615,7 +2618,7 @@ static void rtl_jumbo_config(struct rtl8169_private *tp)
 	if (pci_is_pcie(tp->pci_dev) && tp->supports_gmii)
 		pcie_set_readrq(tp->pci_dev, readrq);
 #else
-#error "FixMe!!!"
+//#error "FixMe!!!"
 #endif /* R8169_IO_PCI */
 
 	/* Chip doesn't support pause in jumbo mode */
@@ -2943,7 +2946,7 @@ static void rtl_disable_clock_request(struct rtl8169_private *tp)
 	pcie_capability_clear_word(tp->pci_dev, PCI_EXP_LNKCTL,
 				   PCI_EXP_LNKCTL_CLKREQ_EN);
 #else
-#error "FixMe!!!"
+//#error "FixMe!!!"
 #endif /* R8169_IO_PCI */
 }
 
@@ -2953,7 +2956,7 @@ static void rtl_enable_clock_request(struct rtl8169_private *tp)
 	pcie_capability_set_word(tp->pci_dev, PCI_EXP_LNKCTL,
 				 PCI_EXP_LNKCTL_CLKREQ_EN);
 #else
-#error "FixMe!!!"
+//#error "FixMe!!!"
 #endif /* R8169_IO_PCI */
 }
 
@@ -4849,7 +4852,7 @@ static void rtl_task(struct work_struct *work)
 				goto out_unlock;
 			}
 #else
-#error "FixMe!!!"
+//#error "FixMe!!!"
 #endif /* R8169_IO_PCI */
 		}
 
@@ -5049,7 +5052,7 @@ static int rtl_open(struct net_device *dev)
 #ifdef R8169_IO_PCI
 	irqflags = pci_dev_msi_enabled(pdev) ? IRQF_NO_THREAD : IRQF_SHARED;
 #else
-#error "FixMe!!!"
+//	irqflags = (tp->features & RTL_FEATURE_MSI) ? 0 : IRQF_SHARED;
 #endif
 	retval = request_irq(tp->irq, rtl8169_interrupt, irqflags, dev->name, tp);
 	if (retval < 0)
@@ -5310,17 +5313,11 @@ static int rtl_alloc_irq(struct rtl8169_private *tp)
 	case RTL_GIGA_MAC_VER_07 ... RTL_GIGA_MAC_VER_17:
 #ifdef R8169_IO_PCI
 		flags = PCI_IRQ_INTX;
-#else
-#error "FixMe!!!"
-//		flags = 
 #endif /* R8169_IO_PCI */
 		break;
 	default:
 #ifdef R8169_IO_PCI
 		flags = PCI_IRQ_ALL_TYPES;
-#else
-#error "FixMe!!!"
-//		flags = 
 #endif /* R8169_IO_PCI */
 		break;
 	}
@@ -5328,8 +5325,7 @@ static int rtl_alloc_irq(struct rtl8169_private *tp)
 #ifdef R8169_IO_PCI
 	return pci_alloc_irq_vectors(tp->pci_dev, 1, 1, flags);
 #else
-#error "FixMe!!!"
-//	return 
+	return 0;
 #endif /* R8169_IO_PCI */
 }
 
@@ -5387,7 +5383,7 @@ static int r8169_mdio_register(struct rtl8169_private *tp)
 #ifdef R8169_IO_PCI
 	struct pci_dev *pdev = tp->pci_dev;
 #else
-	struct platform_device *pdev;
+	struct platform_device *pdev = tp->pdev;
 #endif /* R8169_IO_PCI */
 	struct mii_bus *new_bus;
 	int ret;
@@ -5626,6 +5622,27 @@ static int rtl_init_one(struct platform_device *pdev)
 
 	tp->mmio_addr = pcim_iomap_table(pdev)[region];
 #else
+	/* Reset device */
+	tp->rsts[0].id = "gmac";
+	tp->rsts[1].id = "gphy";
+	rc = devm_reset_control_bulk_get_exclusive(&pdev->dev, MAX_RSTS, tp->rsts);
+	if (rc) {
+		dev_err(&pdev->dev, "failed to get reset lines\n");
+		return rc;
+	}
+	rc = reset_control_bulk_assert(MAX_RSTS, tp->rsts);
+	if (rc) {
+		dev_err(&pdev->dev, "failed to assert resets\n");
+		return rc;
+	}
+	msleep(20);
+	rc = reset_control_bulk_deassert(MAX_RSTS, tp->rsts);
+	if (rc) {
+		dev_err(&pdev->dev, "failed to deassert resets\n");
+		return rc;
+	}
+
+	/* Get MMIO address */
 	tp->mmio_addr = of_iomap(pdev->dev.of_node, 0);
 #endif /* R8169_IO_PCI */
 
