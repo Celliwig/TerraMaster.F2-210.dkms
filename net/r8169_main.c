@@ -84,6 +84,7 @@
 #define TX_DMA_BURST		4			/* Maximum PCI burst, '7' is unlimited */
 #endif /* R8169_IO_PCI */
 #define InterFrameGap		0x03			/* 3 means InterFrameGap = the shortest one */
+#define MAX_CLKS		2			/* Based on RTK1296 */
 
 #define R8169_REGS_SIZE		256
 #define R8169_RX_BUF_SIZE	(SZ_16K - 1)
@@ -653,7 +654,7 @@ struct rtl8169_private {
 	u16				tx_lpi_timer;
 	u32				irq_mask;
 	int				irq;
-	struct clk			*clk;
+	struct clk_bulk_data		clks[MAX_CLKS];
 
 	struct {
 		DECLARE_BITMAP(flags, RTL_FLAG_MAX);
@@ -5151,7 +5152,7 @@ static int rtl8169_suspend(struct device *device)
 	rtnl_lock();
 	rtl8169_net_suspend(tp);
 	if (!device_may_wakeup(tp_to_dev(tp)))
-		clk_disable_unprepare(tp->clk);
+		clk_bulk_disable_unprepare(MAX_CLKS, tp->clks);
 	rtnl_unlock();
 
 	return 0;
@@ -5162,7 +5163,8 @@ static int rtl8169_resume(struct device *device)
 	struct rtl8169_private *tp = dev_get_drvdata(device);
 
 	if (!device_may_wakeup(tp_to_dev(tp)))
-		clk_prepare_enable(tp->clk);
+		if (clk_bulk_prepare_enable(MAX_CLKS, tp->clks))
+			dev_warn(&tp->pdev->dev, "failed to enable clocks\n");
 
 	/* Some chip versions may truncate packets without this initialization */
 	if (tp->mac_version == RTL_GIGA_MAC_VER_37 ||
@@ -5260,6 +5262,9 @@ static void rtl_remove_one(struct platform_device *pdev)
 
 	/* restore original MAC address */
 	rtl_rar_set(tp, tp->dev->perm_addr);
+
+	/* disable clocks */
+	clk_bulk_disable_unprepare(MAX_CLKS, tp->clks);
 }
 
 static const struct net_device_ops rtl_netdev_ops = {
@@ -5409,7 +5414,7 @@ static int r8169_mdio_register(struct rtl8169_private *tp)
 	snprintf(new_bus->id, MII_BUS_ID_SIZE, "r8169-%x-%x",
 		 pci_domain_nr(pdev->bus), pci_dev_id(pdev));
 #else
-#error "FixMe!!!"
+	snprintf(new_bus->id, MII_BUS_ID_SIZE, "r8169-%llx", (u64) tp->mmio_addr);
 #endif /* R8169_IO_PCI */
 
 	new_bus->read = r8169_mdio_read_reg;
@@ -5586,12 +5591,22 @@ static int rtl_init_one(struct platform_device *pdev)
 	raw_spin_lock_init(&tp->mac_ocp_lock);
 	mutex_init(&tp->led_lock);
 
+	/* Get & enable any clocks */
 #ifdef R8169_IO_PCI
-	/* Get the *optional* external "ether_clk" used on some boards */
-	tp->clk = devm_clk_get_optional_enabled(&pdev->dev, "ether_clk");
-	if (IS_ERR(tp->clk))
-		return dev_err_probe(&pdev->dev, PTR_ERR(tp->clk), "failed to get ether_clk\n");
+	tp->clks[0].id = "ether_clk";
+	tp->clks[1].id = NULL;
+#else
+	tp->clks[0].id = "etn_250m";
+	tp->clks[1].id = "etn_sys";
+#endif /* R8169_IO_PCI */
+	rc = devm_clk_bulk_get(&pdev->dev, MAX_CLKS, tp->clks);
+	if (!rc) {
+		rc = clk_bulk_prepare_enable(MAX_CLKS, tp->clks);
+		if (rc)
+			return dev_err_probe(&pdev->dev, rc, "failed to enable clocks\n");
+	}
 
+#ifdef R8169_IO_PCI
 	/* enable device (incl. PCI PM wakeup and hotplug setup) */
 	rc = pcim_enable_device(pdev);
 	if (rc < 0)
@@ -5610,6 +5625,8 @@ static int rtl_init_one(struct platform_device *pdev)
 		return dev_err_probe(&pdev->dev, rc, "cannot remap MMIO, aborting\n");
 
 	tp->mmio_addr = pcim_iomap_table(pdev)[region];
+#else
+	tp->mmio_addr = of_iomap(pdev->dev.of_node, 0);
 #endif /* R8169_IO_PCI */
 
 	txconfig = RTL_R32(tp, TxConfig);
@@ -5665,8 +5682,7 @@ static int rtl_init_one(struct platform_device *pdev)
 #ifdef R8169_IO_PCI
 	tp->irq = pci_irq_vector(pdev, 0);
 #else
-#error "FixMe!!!"
-//	tp->irq = 
+	tp->irq = platform_get_irq(pdev, 0);
 #endif /* R8169_IO_PCI */
 
 	INIT_WORK(&tp->wk.work, rtl_task);
