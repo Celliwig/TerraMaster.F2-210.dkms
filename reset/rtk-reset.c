@@ -17,16 +17,18 @@
 #include <linux/of_address.h>
 #include <linux/platform_device.h>
 #include <linux/pm.h>
-#include <linux/regmap.h>
 #include <linux/reset.h>
 #include <linux/reset-controller.h>
-//#include <linux/reset-helper.h>
 #include <linux/slab.h>
 #include <linux/suspend.h>
+
+#include "rtk,reset.h"
+
+//#include <linux/regmap.h>
+//#include <linux/reset-helper.h>
 //#include <soc/realtek/rdbg.h>
 
-#include "rtk-mmio.h"
-#include "rtk,reset.h"
+//#include "rtk-mmio.h"
 
 #define RESET_ASYNC			BIT(0)
 #define RESET_NO_PM			BIT(1)
@@ -34,15 +36,14 @@
 
 struct reset_priv {
 	struct device			*dev;
+	void __iomem			*rc_base;			/* MMIO base address */
 	struct reset_controller_dev	rc_dev;
 	unsigned int			flags;
 
-	/* MMIO base address */
-	void __iomem			*rc_base;
 
-	/* MMIO regmap */
-	struct regmap			*regmap;
-	int				offset;
+//	/* MMIO regmap */
+//	struct regmap			*regmap;
+//	int				offset;
 
 	/* async reset control */
 	unsigned int			async_data;
@@ -56,8 +57,8 @@ struct reset_priv {
 	/* boot clear bits */
 	unsigned int			boot_clear_bits;
 
-	/* reg tracker */
-	//struct rdbg_info		*ref;
+//	/* reg tracker */
+//	struct rdbg_info		*ref;
 };
 
 static DEFINE_SPINLOCK(rtk_reset_async_lock);
@@ -94,12 +95,14 @@ static inline void rtk_reset_write(struct reset_priv *priv, unsigned int val)
 
 static inline void rtk_reset_read(struct reset_priv *priv, unsigned int *val)
 {
-	if (priv->regmap)
-		regmap_read(priv->regmap, priv->offset, val);
-	else if (priv->rc_base)
-		*val = readl(priv->rc_base);
-	else
-		WARN_ON_ONCE(1);
+//	if (priv->regmap)
+//		regmap_read(priv->regmap, priv->offset, val);
+//	else if (priv->rc_base)
+	*val = readl_relaxed(priv->rc_base);
+//	else
+//		WARN_ON_ONCE(1);
+
+	dev_dbg(priv->dev, "%s := 0x%08x\n", __func__, *val);
 }
 
 static inline void rtk_reset_update_bits(struct reset_priv *priv,
@@ -107,16 +110,17 @@ static inline void rtk_reset_update_bits(struct reset_priv *priv,
 {
 	dev_dbg(priv->dev, "%s: flags:%c mask=%08x, val=%08x\n",
 		__func__, contain_write_en(priv) ? 'w' : '-' , mask, val);
-	if (priv->regmap) {
-		regmap_update_bits(priv->regmap, priv->offset, mask, val);
-	} else if (priv->rc_base) {
-		unsigned int rval;
 
-		rval = readl(priv->rc_base);
-		rval = (rval & ~mask) | (val & mask);
-		writel(rval, priv->rc_base);
-	} else
-		WARN_ON_ONCE(1);
+//	if (priv->regmap) {
+//		regmap_update_bits(priv->regmap, priv->offset, mask, val);
+//	} else if (priv->rc_base) {
+	unsigned int rval;
+
+	rval = readl_relaxed(priv->rc_base);
+	rval = (rval & ~mask) | (val & mask);
+	writel(rval, priv->rc_base);
+//	} else
+//		WARN_ON_ONCE(1);
 }
 
 static int rtk_reset_assert(struct reset_controller_dev *rc_dev,
@@ -134,7 +138,7 @@ static int rtk_reset_assert(struct reset_controller_dev *rc_dev,
 	val = bits_to_clear(priv, BIT(id));
 	rtk_reset_update_bits(priv, mask, val);
 
-	//rdbg_update_ref(priv->ref, BIT(id), __func__);
+//	rdbg_update_ref(priv->ref, BIT(id), __func__);
 
 	return 0;
 }
@@ -155,7 +159,7 @@ static void rtk_reset_deassert_sync(unsigned int group)
 		val = bits_to_set(p, p->async_data);
 		rtk_reset_update_bits(p, mask, val);
 
-		//rdbg_update_ref(p->ref, p->async_data, __func__);
+//		rdbg_update_ref(p->ref, p->async_data, __func__);
 		p->async_data = 0;
 	}
 }
@@ -182,7 +186,7 @@ static int rtk_reset_deassert(struct reset_controller_dev *rc_dev,
 	val = bits_to_set(priv, BIT(id));
 	rtk_reset_update_bits(priv, mask, val);
 
-	//rdbg_update_ref(priv->ref, BIT(id), __func__);
+//	rdbg_update_ref(priv->ref, BIT(id), __func__);
 
 	return 0;
 }
@@ -221,6 +225,8 @@ static int rtk_reset_of_xlate(struct reset_controller_dev *rc_dev,
 {
 	struct reset_priv __maybe_unused *priv = to_reset_priv(rc_dev);
 	int id;
+
+	dev_dbg(priv->dev, "%s: args: %u\n", __func__, reset_spec->args_count);
 
 	if (reset_spec->args_count != 1)
 		return -EINVAL;
@@ -307,44 +313,47 @@ static int rtk_reset_probe(struct platform_device *pdev)
 	struct device *dev = &pdev->dev;
 	struct device_node *np = dev->of_node;
 	struct reset_priv *priv;
-	struct regmap *regmap;
+//	struct regmap *regmap = NULL;
 	void __iomem *rc_base;
-	int offset = 0;
+//	int offset = 0;
 	int ret;
 
 	dev_info(dev, "%s\n", __func__);
 
-	priv = devm_kzalloc(&pdev->dev, sizeof(struct reset_priv), GFP_KERNEL);
+	priv = devm_kzalloc(dev, sizeof(struct reset_priv), GFP_KERNEL);
 	if (!priv) {
-		dev_err(&pdev->dev, "failed to allocate memory\n");
+		dev_err(dev, "failed to allocate memory\n");
 		return -ENOMEM;
 	}
 
 	/* Get MMIO register base */
-	rc_base = of_iomap(np, 0);
-	regmap = of_get_rtk_mmio_regmap_with_offset(np, 0, &offset);
-	if (IS_ERR(regmap))
-		regmap = NULL;
-	if (!rc_base && IS_ERR_OR_NULL(regmap)) {
-		dev_err(&pdev->dev, "failed to get MMIO base address\n");
+	rc_base = devm_platform_ioremap_resource(pdev, 0);
+//	regmap = of_get_rtk_mmio_regmap_with_offset(np, 0, &offset);
+//	if (IS_ERR(regmap))
+//		regmap = NULL;
+//	if (!rc_base && IS_ERR_OR_NULL(regmap)) {
+	if (!rc_base) {
+		dev_err(dev, "failed to get MMIO base address\n");
 		return -EINVAL;
 	}
 
+	/* Save device info. */
 	priv->dev = dev;
 	priv->rc_base = rc_base;
-	if (regmap) {
-		priv->regmap = regmap;
-		priv->offset = offset;
-		dev_info(dev, "using MMIO regmap\n");
-	}
+//	if (regmap) {
+//		priv->regmap = regmap;
+//		priv->offset = offset;
+//		dev_info(dev, "using MMIO regmap\n");
+//	}
 
-	/* low level debug */
-	//if (is_clk_debug_enabled()) {
-	//	priv->ref = of_rdbg_get_info(np, 0, 0);
-	//	if (priv->ref)
-	//		dev_err(dev, "rdbg add %s\n", np->name);
-	//}
+//	/* low level debug */
+//	if (is_clk_debug_enabled()) {
+//		priv->ref = of_rdbg_get_info(np, 0, 0);
+//		if (priv->ref)
+//			dev_err(dev, "rdbg add %s\n", np->name);
+//	}
 
+	/* Configure reset controller */
 	priv->rc_dev.owner = THIS_MODULE;
 	priv->rc_dev.ops = &rtk_reset_ops;
 	priv->rc_dev.of_node = np;
@@ -360,9 +369,9 @@ static int rtk_reset_probe(struct platform_device *pdev)
 		rtk_reset_update_bits(priv, mask, val);
 	}
 
-	ret = reset_controller_register(&priv->rc_dev);
+	ret = devm_reset_controller_register(dev, &priv->rc_dev);
 	if (ret) {
-		dev_err(&pdev->dev, "failed to register reset controller\n");
+		dev_err(dev, "failed to register reset controller\n");
 		return ret;
 	}
 
@@ -377,11 +386,11 @@ static const struct of_device_id rtk_reset_match[] = {
 };
 
 static struct platform_driver rtk_reset_driver = {
-	.probe = rtk_reset_probe,
+	.probe	= rtk_reset_probe,
 	.driver = {
-		.name   = "rtk-reset",
+		.name		= "rtk-reset",
 		.of_match_table = rtk_reset_match,
-		.pm = &rtk_reset_pm_ops,
+		.pm		= &rtk_reset_pm_ops,
 	},
 };
 
