@@ -7,6 +7,8 @@
  * Copyright (c) a lot of people too. Please respect their work.
  *
  * See MAINTAINERS file for support contact information.
+ *
+ * Updated 2026 - Celliwig <celliwig@nym.hush.com>
  */
 
 //#define R8169_IO_PCI					// If defined, use PCI(e) interface
@@ -2270,6 +2272,7 @@ static enum mac_version rtl8169_get_mac_version(u16 xid, bool gmii)
 		{ 0x7cf, 0x6c0,	RTL_GIGA_MAC_VER_46 },
 
 		/* 8168G family. */
+		{ 0x7cf, 0x5ca,	RTL_GIGA_MAC_VER_42 },
 		{ 0x7cf, 0x5c8,	RTL_GIGA_MAC_VER_44 },
 		{ 0x7cf, 0x509,	RTL_GIGA_MAC_VER_42 },
 		/* It seems this chip version never made it to
@@ -5625,7 +5628,7 @@ static int rtl_init_one(struct platform_device *pdev)
 	/* Reset device */
 	tp->rsts[0].id = "gmac";
 	tp->rsts[1].id = "gphy";
-	rc = devm_reset_control_bulk_get_shared(&pdev->dev, MAX_RSTS, tp->rsts);
+	rc = devm_reset_control_bulk_get_exclusive(&pdev->dev, MAX_RSTS, tp->rsts);
 	if (rc) {
 		dev_err(&pdev->dev, "failed to get reset lines\n");
 		return rc;
@@ -5868,7 +5871,7 @@ static const struct of_device_id rtl8169_dt_ids[] = {
 
 MODULE_DEVICE_TABLE(of, rtl8169_dt_ids);
 
-static struct platform_driver rtl8169_soc_driver = {
+static struct platform_driver rtl8169_mmio_driver = {
 	.probe		= rtl_init_one,
 	.remove		= rtl_remove_one,
 	.shutdown	= rtl_shutdown,
@@ -5880,7 +5883,7 @@ static struct platform_driver rtl8169_soc_driver = {
 	},
 };
 
-module_platform_driver(rtl8169_soc_driver);
+module_platform_driver(rtl8169_mmio_driver);
 #endif /* R8169_IO_PCI */
 
 MODULE_FIRMWARE(FIRMWARE_8168D_1);
