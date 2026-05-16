@@ -6,7 +6,10 @@
  * Author: Johnson Leung <r58129@freescale.com>
  *
  * Copyright (c) 2004 Freescale Semiconductor, Inc.
+ *
+ * Updated 2026 - Celliwig <celliwig@nym.hush.com>
  */
+
 #include <linux/bitops.h>
 #include <linux/of.h>
 #include <linux/phy.h>
@@ -1285,6 +1288,14 @@ static struct phy_driver realtek_drvs[] = {
 		.write_mmd	= genphy_write_mmd_unsupported,
 		.suspend	= genphy_suspend,
 		.resume		= genphy_resume,
+		.read_page	= rtl821x_read_page,
+		.write_page	= rtl821x_write_page,
+	}, {
+		PHY_ID_MATCH_EXACT(0x001cc900),					/* Guessed this is RTL8210 */
+		.name		= "RTL8210 Gigabit Ethernet",
+//		.config_aneg	= rtl8211_config_aneg,
+		.read_mmd	= &genphy_read_mmd_unsupported,
+		.write_mmd	= &genphy_write_mmd_unsupported,
 		.read_page	= rtl821x_read_page,
 		.write_page	= rtl821x_write_page,
 	}, {
