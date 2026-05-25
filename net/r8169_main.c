@@ -2448,8 +2448,14 @@ static void rtl_schedule_task(struct rtl8169_private *tp, enum rtl_flag flag)
 	schedule_work(&tp->wk.work);
 }
 
+/*
+ * Include SOC specific code
+ */
+#include "r8169_soc.c"
+
 static void rtl8169_init_phy(struct rtl8169_private *tp)
 {
+	r8169_hw_phy_config_soc(tp, tp->phydev, tp->mac_version);
 	r8169_hw_phy_config(tp, tp->phydev, tp->mac_version);
 
 	if (tp->mac_version <= RTL_GIGA_MAC_VER_06) {
