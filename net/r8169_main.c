@@ -676,6 +676,7 @@ struct rtl8169_private {
 	unsigned			supports_gmii:1;
 	unsigned			aspm_manageable:1;
 	unsigned			dash_enabled:1;
+	unsigned			mdio_detect_disable:1;
 	dma_addr_t			counters_phys_addr;
 	struct rtl8169_counters 	*counters;
 	struct rtl8169_tc_offsets	tc_offset;
@@ -1220,6 +1221,11 @@ static int r8168dp_2_mdio_read(struct rtl8169_private *tp, int reg)
 
 static void rtl_writephy(struct rtl8169_private *tp, int location, int val)
 {
+	if (tp->mdio_detect_disable) {
+		r8169_mdio_write(tp, location, val);
+		return;
+	}
+
 	switch (tp->mac_version) {
 	case RTL_GIGA_MAC_VER_28:
 	case RTL_GIGA_MAC_VER_31:
@@ -1236,6 +1242,10 @@ static void rtl_writephy(struct rtl8169_private *tp, int location, int val)
 
 static int rtl_readphy(struct rtl8169_private *tp, int location)
 {
+	if (tp->mdio_detect_disable) {
+		return r8169_mdio_read(tp, location);
+	}
+
 	switch (tp->mac_version) {
 	case RTL_GIGA_MAC_VER_28:
 	case RTL_GIGA_MAC_VER_31:
@@ -5557,10 +5567,12 @@ static bool rtl_aspm_is_safe(struct rtl8169_private *tp)
 
 #ifdef R8169_IO_PCI
 static int rtl_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
+{
 #else
 static int rtl_init_one(struct platform_device *pdev)
-#endif /* R8169_IO_PCI */
 {
+	u32 output_mode;
+#endif /* R8169_IO_PCI */
 	struct rtl8169_private *tp;
 	int jumbo_max, region, rc;
 	enum mac_version chipset;
@@ -5647,6 +5659,13 @@ static int rtl_init_one(struct platform_device *pdev)
 
 	/* Get MMIO address */
 	tp->mmio_addr = of_iomap(pdev->dev.of_node, 0);
+
+	/* Assume if 'output-mode' is in the DTB, then force the MDIO handler */
+	if (!of_property_read_u32(pdev->dev.of_node, "output-mode", &output_mode)) {
+		tp->mdio_detect_disable = true;
+	} else {
+		tp->mdio_detect_disable = false;
+	}
 #endif /* R8169_IO_PCI */
 
 	txconfig = RTL_R32(tp, TxConfig);
