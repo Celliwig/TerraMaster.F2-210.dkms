@@ -1,0 +1,379 @@
+// SPDX-License-Identifier: (GPL-2.0-or-later OR BSD-2-Clause)
+/*
+ * TerraMaster F2-210 devicetree
+ * Copyright (c) 2021 Celliwig
+ */
+
+/dts-v1/;
+
+#include <memory/rtd129x,memory.h>
+
+/memreserve/ SYS_BOOTCODE_MEMBASE SYS_BOOTCODE_MEMSIZE;
+/memreserve/ RPC_COMM_PHYS RPC_COMM_SIZE;
+/memreserve/ RPC_RINGBUF_PHYS RPC_RINGBUF_SIZE;
+/memreserve/ ROOTFS_NORMAL_START ROOTFS_NORMAL_SIZE;
+/memreserve/ ACPU_IDMEM_PHYS ACPU_IDMEM_SIZE;
+/memreserve/ TEE_OS_PHYS TEE_OS_SIZE;
+
+#include <rtd-1296.dtsi>
+#include <gpio/gpio.h>
+#include <leds/common.h>
+
+/ {
+	compatible = "terramaster,f2-210", "realtek,rtd1296";
+	model = "TerraMaster F2-210";
+
+	aliases {
+		serial0 = &uart0;
+	};
+
+	cpus {
+		A53_0: cpu@0 {
+			enable-method = "spin-table";
+			cpu-release-addr = <0x0 0x0001E000>;
+		};
+
+		A53_1: cpu@1 {
+			enable-method = "spin-table";
+			cpu-release-addr = <0x0 0x0001E000>;
+		};
+
+		A53_2: cpu@2 {
+			enable-method = "spin-table";
+			cpu-release-addr = <0x0 0x0001E000>;
+		};
+
+		A53_3: cpu@3 {
+			enable-method = "spin-table";
+			cpu-release-addr = <0x0 0x0001E000>;
+		};
+	};
+
+	pinctrl@9801A000 {
+		pinctrl-names = "default";
+		pinctrl-0 = <&sdcard_pins_low>,
+			<&sdcard_pins_high>,
+			<&uart0_pins>,
+			<&uart1_pins>,
+			<&uart2_pins_0>,
+			<&i2c_pins_6>,
+			<&pcie1_clk_pins>,
+			<&pcie2_clk_pins>,
+			<&rgmii0_pins>,
+			<&ir_rx_pins>,
+			<&ir_tx_pins>,
+			<&spdif_pins>,
+			<&spi_pins_loc_gpio>,
+			<&pwm0_0_pins>,
+			<&dc_fan_sensor_pins>,
+			<&etn_led_pins>,
+			<&gspi_pins>;
+		status = "okay";
+	};
+
+	rtk_usb_power_manager@0 {
+		compatible = "Realtek,usb-manager";
+		realtek,port0-power-gpio = <&rtk_iso_gpio 0x01 0x01 0x00>;	/* USB DRD */
+		realtek,port1-power-gpio = <&rtk_iso_gpio 0x1f 0x01 0x00>;	/* u2host power, output, default low */
+		realtek,port3-power-gpio = <&rtk_iso_gpio 0x20 0x01 0x00>;	/* 1296 u3host power, output, default low */
+		status = "okay";
+	};
+
+	firmware {
+		optee {
+			compatible = "linaro,optee-tz";
+			method = "smc";
+		};
+	};
+
+	arch_timer {
+		clock-frequency = <27000000>;
+	};
+
+	rtk_misc_gpio: rtk_misc_gpio@9801b100 {
+		gpios = <&rtk_misc_gpio 0x08 0x00 0x00>;
+	};
+
+	/* Add a fixed baudrate clock to make serial driver happy */
+	baudclk: oscillator_27mhz {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <27000000>;
+		clock-output-names = "baudclk";
+	};
+
+//	uart0: serial0@98007800 {
+//		compatible = "rtk,dw-apb-uart";
+//		clocks = <&baudclk>, <&iclk_en CLK_EN_MISC_UR0>;
+//		clock-names = "baudclk", "apb_pclk";
+//		//clock-frequency = <0x19bfcc0>;
+//
+//		/delete-property/ interrupts;
+//		/delete-property/ interrupt-parent;
+//		/delete-property/ interrupts-st-mask;
+//		status = "okay";
+//	};
+
+	serial0@98007800 {
+		compatible = "rtk,dw-apb-uart";
+		clocks = <&baudclk>, <&iclk_en CLK_EN_MISC_UR0>;
+		clock-names = "baudclk", "apb_pclk";
+		//clock-frequency = <0x19bfcc0>;
+		status = "okay";
+	};
+
+	uart1: serial1@9801B200 {
+		compatible = "snps,dw-apb-uart";
+		status = "disabled";
+	};
+
+	hwnat: gmac@98060000 {
+		compatible = "Realtek,rtd1295-hwnat";
+		offload_enable = <0x01>;
+		status = "disabled";
+	};
+
+	timer0@9801B000 {
+		clock-frequency = <0x19bfcc0>;
+	};
+
+	timer1@9801B000 {
+		clock-frequency = <0x325aa0>;
+	};
+
+	pcie2@9803B000 {
+		compatible = "Realtek,rtd1295-pcie-slot2";
+		speed-mode = <0x01>;
+	};
+
+	emmc@98012000 {
+		compatible = "Realtek,rtk1295-emmc";
+		status = "disabled";
+	};
+
+	pu_pll@98000000 {
+		compatible = "Realtek,rtk1295-pu_pll";
+		status = "okay";
+	};
+
+	spi_0: spi@9801BD00 {
+		compatible = "Realtek,rtk129x-spi";
+		status = "disabled";					/* Disabled in the original DTB!?! */
+	};
+
+	pwm: pwm@980070D0 {
+		compatible = "Realtek,rtd1295-pwm";
+		status = "okay";
+		pwm_0 {
+			enable = <1>;
+			duty_rate = <0x32>;				/* default duty_rate 0 ~ 100 */
+		};
+		pwm_1 {
+			enable = <1>;
+			duty_rate = <0x32>;				/* default duty_rate 0 ~ 100 */
+		};
+	};
+
+	rtk_fan: rtk_fan@9801BC00 {
+		compatible = "Realtek,rtd129x-fan";
+		reg = <0x9801BC00 0x14>, <0x9801A910 0x4>;
+		interrupt-parent = <&mux_intc>;
+		interrupts = <0x00 0x1d>;
+		status = "okay";
+
+		pwms = <&pwm 0x00 0x93f6>;				/* (1) pwm node (2) pwm id (3) out period_ns (1/26400 ns) */
+		pwm-names = "pwm_fan";
+
+		timer_target = <0x100000>;
+		fan_debounce = <0x0>;					/* 0x0~0x7 */
+		clocks = <&clk_en_2 CLK_EN_FAN>;
+		clock-names = "clk_en_fan";
+		resets = <&rst4 RSTN_FAN>;
+		reset-names = "rstn_fan";
+	};
+
+	power-management {
+		compatible = "Realtek,power-management";
+		wakeup-gpio-list = <&rtk_iso_gpio 0x05 0x00 0x00>,	/* Power Key */
+			<&rtk_iso_gpio 0x0e 0x00 0x00>,
+			<&rtk_iso_gpio 0x21 0x00 0x00>;
+		wakeup-gpio-enable = <1>, <0>, <1>;
+		wakeup-gpio-activity = <1>, <0>, <0>;
+	};
+
+	rng@9801AA00 {
+		compatible = "Realtek,rtk-rng";
+		reg = <0x9801AA00 0x48>;
+	};
+
+	dptx@9803D000 {
+		compatible = "Realtek,rtk-dptx";
+		status = "disable";
+	};
+
+	chosen {
+		stdout-path = "serial0:115200n8";
+		compatible = "Realtek,rtk1295-cma_info";
+		cma-region-enable = <0x01>;
+		cma-region-info = <0x00 0x1000000 0x11000000>;
+	};
+
+	memory {
+		device_type = "memory";
+		reg = <0x00 0x40000000>;
+	};
+
+	reserved-memory {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		rbus@0 {
+			compatible = "rsvmem-remap";
+			save_remap_name = "rbus";
+			reg = <RBUS_BASE_PHYS RBUS_BASE_SIZE>;
+			rtk_rbus_barrier_flag;
+		};
+
+		common@0 {
+			compatible = "rsvmem-remap";
+			save_remap_name = "common";
+			reg = <RPC_COMM_PHYS RPC_COMM_SIZE>;
+		};
+
+		ringbuf@0 {
+			compatible = "rsvmem-remap";
+			save_remap_name = "ringbuf";
+			reg = <RPC_RINGBUF_PHYS RPC_RINGBUF_SIZE>;
+		};
+	};
+
+	rtk,ion {
+		compatible = "Realtek,rtk-ion";
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		rtk,ion-heap@0 { /* SYSTEM_HEAP */
+			compatible = "Realtek,rtk-ion-reserve";
+			reg = <0>;
+			rtk,memory-reservation-size = <0x0>;
+		};
+
+		rtk,ion-heap@1 { /* System contig */
+			compatible = "Realtek,rtk-ion-reserve";
+			reg = <1>;
+			rtk,memory-reservation-size = <0x0>;
+		};
+
+		rtk,ion-heap@4 { /* DMA_HEAP */
+			compatible = "Realtek,rtk-ion-reserve";
+			reg = <4>;
+			rtk,memory-reservation-size = <0x0>;
+		};
+	};
+
+	fb {
+		compatible = "Realtek,rtk-fb";
+		buffer-cnt = <0x02>;
+		resolution = <0x780 0x438>;
+		fps = <0x3c>;
+		pixel_format = <0x07>;
+		status = "okay";
+	};
+
+	cec0@98037800 {
+		status = "disabled";
+	};
+
+	gpio-keys {
+		compatible = "gpio-keys";
+		status = "okay";
+		autorepeat;
+
+		power-button {
+			label = "Power Button";
+			gpios = <&rtk_iso_gpio 0x05 0x00 0x01>;
+			linux,code = <0x74>;
+		};
+	};
+
+	rfkilligpio{
+		status = "okay";
+	};
+
+	leds {
+		compatible = "gpio-leds";
+
+		sata1 {
+			function = LED_FUNCTION_DISK;
+			function-enumerator = <1>;
+			color = <LED_COLOR_ID_GREEN>;
+			gpios = <&rtk_misc_gpio 20 1 1>;		/* HDD1 LED, output, default on */
+			default-state = "on";
+			linux,default-trigger = "disk-activity";
+			trigger-sources = <&ahci_sata 0>;
+		};
+
+		sata2 {
+			function = LED_FUNCTION_DISK;
+			function-enumerator = <2>;
+			color = <LED_COLOR_ID_GREEN>;
+			gpios = <&rtk_misc_gpio 17 1 1>;		/* HDD2 LED, output, default on */
+			default-state = "on";
+			linux,default-trigger = "disk-activity";
+			trigger-sources = <&ahci_sata 1>;
+		};
+
+		lan {
+			function = LED_FUNCTION_LAN;
+			function-enumerator = <1>;
+			color = <LED_COLOR_ID_GREEN>;
+			gpios = <&rtk_misc_gpio 99 1 1>;		/* LAN LED, output, default on */
+			default-state = "on";
+			linux,default-trigger = "netdev";
+			trigger-sources = <&nic>;
+		};
+
+		speaker {
+			label = "speaker";
+			gpios = <&rtk_misc_gpio 100 1 1>;		/* Piezo buzzer, output, default on (buzzer off) */
+			default-state = "on";				/* Really, off */
+			linux,default-trigger = "none";
+		};
+
+		led_control {
+			label = "led_control";
+			gpios = <&rtk_misc_gpio 24 1 1>;		/* LED control, output, default on */
+			default-state = "on";
+			linux,default-trigger = "none";
+			panic-indicator;
+		};
+        };
+
+//	/* Fixup SATA controller, disconnect unavailable devices */
+//	/* This relies on U-Boot already having initialised device */
+//	ahci_sata: sata@9803F000 {
+////		/delete-property/ clocks;
+//		sata-port@0 {
+//			/delete-property/ phys;
+////			/delete-property/ gpios;
+//		};
+//		sata-port@1 {
+//			/delete-property/ phys;
+////			/delete-property/ gpios;
+//		};
+//	};
+
+	/* Fixup USB controllers, disconnect unavailable devices */
+	/* This relies on U-Boot already having initialised device */
+	dwc3_u2host: rtk_dwc3_u2host@98013E00 {
+		dwc3_u2host@98029000 {
+			/delete-property/ usb-phy;
+		};
+	};
+	dwc3_u3host: rtk_dwc3_u3host@98013E00 {
+		dwc3_u3host@981F0000 {
+			/delete-property/ usb-phy;
+		};
+	};
+};
