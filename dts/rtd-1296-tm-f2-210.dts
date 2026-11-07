@@ -228,12 +228,12 @@
 		#size-cells = <1>;
 		ranges;
 
-		rbus@0 {
-			compatible = "rsvmem-remap";
-			save_remap_name = "rbus";
-			reg = <RBUS_BASE_PHYS RBUS_BASE_SIZE>;
-			rtk_rbus_barrier_flag;
-		};
+		//rbus@0 {
+		//	compatible = "rsvmem-remap";
+		//	save_remap_name = "rbus";
+		//	reg = <RBUS_BASE_PHYS RBUS_BASE_SIZE>;
+		//	rtk_rbus_barrier_flag;
+		//};
 
 		common@0 {
 			compatible = "rsvmem-remap";
