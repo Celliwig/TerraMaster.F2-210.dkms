@@ -97,9 +97,11 @@
 	/* Force console to fallback to simple polling serial device */
 	uart0: serial0@98007800 {
 		compatible = "ns16550a";
+		/delete-property/ clocks;
 		/delete-property/ interrupts;
 		/delete-property/ interrupt-parent;
 		/delete-property/ interrupts-st-mask;
+		/delete-property/ resets;
 		clock-frequency = <0x19bfcc0>;
 		status = "okay";
 	};
